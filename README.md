@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Remediation Engine - Testing Suite
 
 > **Automated testing infrastructure using Infrastructure-as-Code**
@@ -340,3 +341,7 @@ For issues or questions:
 Latest test results: [View on GitHub Actions](https://github.com/maftabmirza/remediation-engine-testing/actions)
 
 Test coverage report: [View on Codecov](https://codecov.io/gh/maftabmirza/remediation-engine-testing)
+=======
+# remediation-engine-testing
+remediation-engine-testing
+>>>>>>> ce048b4709289db4078aca15c97472efb9eaa474
