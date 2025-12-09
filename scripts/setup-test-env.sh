@@ -73,6 +73,10 @@ fi
 # Install Playwright browsers
 echo -e "${YELLOW}Installing Playwright browsers...${NC}"
 playwright install chromium firefox
+
+# Install Playwright system dependencies (optional, for UI tests)
+echo -e "${YELLOW}Installing Playwright system dependencies...${NC}"
+playwright install-deps || echo -e "${YELLOW}  Skipping Playwright deps (run 'playwright install-deps' manually if needed)${NC}"
 echo -e "${GREEN}✓ Playwright browsers installed${NC}"
 
 # Create necessary directories
@@ -96,6 +100,18 @@ else
     echo -e "${YELLOW}  config/test.env already exists${NC}"
 fi
 
+# Detect docker compose command (newer Docker uses 'docker compose' with space)
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+else
+    echo -e "${RED}ERROR: Docker Compose not found${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Using: $DOCKER_COMPOSE${NC}"
+
 # Start Docker infrastructure
 echo ""
 echo -e "${YELLOW}Starting test infrastructure...${NC}"
@@ -103,11 +119,11 @@ cd infrastructure
 
 # Stop existing containers
 echo -e "${YELLOW}Stopping existing containers...${NC}"
-docker-compose down -v 2>/dev/null || true
+$DOCKER_COMPOSE down -v 2>/dev/null || true
 
 # Start new containers
 echo -e "${YELLOW}Starting containers...${NC}"
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 
 # Wait for services to be healthy
 echo -e "${YELLOW}Waiting for services to be ready...${NC}"
@@ -115,7 +131,7 @@ sleep 10
 
 # Check service health
 echo -e "${YELLOW}Checking service health...${NC}"
-docker-compose ps
+$DOCKER_COMPOSE ps
 
 cd ..
 
