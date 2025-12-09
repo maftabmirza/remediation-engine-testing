@@ -1,0 +1,266 @@
+# Deployment Guide
+## Remediation Engine Testing Repository
+
+---
+
+## 1. Initial Repository Setup
+
+### Create GitHub Repository
+
+1. Go to https://github.com/maftabmirza
+2. Click "New repository"
+3. Name: `remediation-engine-testing`
+4. Description: "Automated testing suite for AIOps Remediation Engine"
+5. Set to Public or Private
+6. Click "Create repository"
+
+### Upload Files to GitHub
+
+```bash
+# Initialize git in the testing-repo directory
+cd testing-repo
+git init
+git add .
+git commit -m "Initial commit: IaC testing infrastructure"
+
+# Add remote and push
+git remote add origin https://github.com/maftabmirza/remediation-engine-testing.git
+git branch -M main
+git push -u origin main
+```
+
+---
+
+## 2. Local Development Setup
+
+### Clone and Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/maftabmirza/remediation-engine-testing.git
+cd remediation-engine-testing
+
+# Make scripts executable
+chmod +x scripts/*.sh
+
+# Run setup
+./scripts/setup-test-env.sh
+```
+
+### Verify Setup
+
+```bash
+# Check infrastructure
+docker-compose -f infrastructure/docker-compose.yml ps
+
+# Run smoke tests
+./scripts/run-tests.sh --marker smoke
+```
+
+---
+
+## 3. Test Server Deployment (172.234.217.11)
+
+### Option A: Automated Deployment (From Local Machine)
+
+```bash
+# Deploy from your local machine
+./scripts/deploy-to-server.sh \
+    --host 172.234.217.11 \
+    --user aftab \
+    --env staging
+```
+
+### Option B: Manual Deployment (On Server)
+
+```bash
+# SSH to server
+ssh aftab@172.234.217.11
+
+# Navigate to deployment directory
+cd /home/aftab
+
+# Clone repository
+git clone https://github.com/maftabmirza/remediation-engine-testing.git
+cd remediation-engine-testing
+
+# Make scripts executable
+chmod +x scripts/*.sh
+
+# Setup environment
+./scripts/setup-test-env.sh
+
+# Start infrastructure
+cd infrastructure
+docker-compose up -d
+
+# Check services
+docker-compose ps
+```
+
+---
+
+## 4. Running Tests on Server
+
+### Basic Test Execution
+
+```bash
+# Run all tests
+./scripts/run-tests.sh --suite all
+
+# Run with report
+./scripts/run-tests.sh --suite all --report allure
+
+# Run specific suites
+./scripts/run-tests.sh --suite unit
+./scripts/run-tests.sh --suite api --verbose
+```
+
+### View Test Results
+
+```bash
+# View Allure report
+allure serve reports/allure-results
+
+# Or access via browser
+# http://172.234.217.11:5050 (if Allure service is running)
+```
+
+---
+
+## 5. CI/CD Integration
+
+### GitHub Actions
+
+Workflows automatically run on:
+- Push to `main` or `develop`
+- Pull requests
+- Daily at 2 AM UTC
+- Manual trigger
+
+### View Results
+
+1. Go to repository on GitHub
+2. Click "Actions" tab
+3. Select latest workflow run
+4. View test results and artifacts
+
+---
+
+## 6. Accessing Services
+
+When deployed on 172.234.217.11:
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Application | http://172.234.217.11:8081 | admin / TestPassw0rd! |
+| Prometheus | http://172.234.217.11:9091 | - |
+| Grafana | http://172.234.217.11:3001 | admin / test_admin |
+| Allure Reports | http://172.234.217.11:5050 | - |
+
+---
+
+## 7. Troubleshooting
+
+###Port Already in Use
+
+```bash
+# Check what's using the port
+sudo lsof -i :8081
+
+# Stop existing services
+cd infrastructure
+docker-compose down
+
+# Restart
+docker-compose up -d
+```
+
+### Database Connection Issues
+
+```bash
+# Check database logs
+docker logs aiops-postgres-test
+
+# Restart database
+docker-compose restart postgres-test
+
+# Verify connection
+docker exec -it aiops-postgres-test psql -U test_user -d aiops_test
+```
+
+### Test Failures
+
+```bash
+# Run with verbose output
+./scripts/run-tests.sh --suite all --verbose
+
+# Check test logs
+cat reports/test.log
+
+# Run specific failing test
+pytest tests/unit/test_user_model.py::test_user_creation -vv
+```
+
+### Cleanup and Reset
+
+```bash
+# Stop all services
+cd infrastructure
+docker-compose down -v
+
+# Remove all data
+docker volume prune -f
+
+# Restart from scratch
+./scripts/setup-test-env.sh
+```
+
+---
+
+## 8. Maintenance
+
+### Update Tests
+
+```bash
+# Pull latest changes
+git pull origin main
+
+# Rebuild test runner if Dockerfile changed
+docker-compose -f infrastructure/docker-compose.yml build test-runner
+
+# Restart services
+docker-compose -f infrastructure/docker-compose.yml restart
+```
+
+### View Logs
+
+```bash
+# All services
+docker-compose -f infrastructure/docker-compose.yml logs -f
+
+# Specific service
+docker logs -f remediation-engine-test
+docker logs -f aiops-postgres-test
+```
+
+---
+
+## 9. Production Deployment Checklist
+
+- [ ] Update credentials in [.env](file:///d:/remediate-engine-antigravity/remediation-engine/.env) files
+- [ ] Configure firewall rules
+- [ ] Set up SSL certificates
+- [ ] Configure backup for test database
+- [ ] Set up monitoring alerts
+- [ ] Review and adjust resource limits
+- [ ] Configure log rotation
+- [ ] Set up artifact retention policy
+
+---
+
+## Support
+
+For issues or questions:
+- GitHub Issues: https://github.com/maftabmirza/remediation-engine-testing/issues
+- Contact: [Your Email/Contact]

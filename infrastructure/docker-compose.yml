@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Test Database
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: aiops-postgres-test
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: aiops_test
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-test-data:/var/lib/postgresql/data
+      - ./init-test-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U test_user -d aiops_test" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test-network
+
+  # Redis Cache
+  redis-test:
+    image: redis:7-alpine
+    container_name: aiops-redis-test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test-network
+
+  # Remediation Engine (Application Under Test)
+  remediation-engine-test:
+    build:
+      context: ../remediation-engine
+      dockerfile: Dockerfile
+    container_name: remediation-engine-test
+    environment:
+      - DATABASE_URL=postgresql://test_user:test_password@postgres-test:5432/aiops_test
+      - REDIS_URL=redis://redis-test:6379
+      - SECRET_KEY=test-secret-key-change-in-production
+      - ADMIN_USERNAME=test_admin
+      - ADMIN_PASSWORD=TestPassw0rd!
+      - LOG_LEVEL=DEBUG
+      - TESTING=true
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - test-network
+    volumes:
+      - test-storage:/app/storage
+
+  # Prometheus (Monitoring)
+  prometheus-test:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus-test
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus-test.yml:/etc/prometheus/prometheus.yml
+      - prometheus-test-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - test-network
+
+  # Grafana (Visualization)
+  grafana-test:
+    image: grafana/grafana:latest
+    container_name: grafana-test
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=test_admin
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana-test-data:/var/lib/grafana
+    depends_on:
+      - prometheus-test
+    networks:
+      - test-network
+
+  # Test Runner (Pytest Container)
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: test-runner
+    environment:
+      - DATABASE_URL=postgresql://test_user:test_password@postgres-test:5432/aiops_test
+      - REDIS_URL=redis://redis-test:6379
+      - APP_URL=http://remediation-engine-test:8080
+      - TESTING=true
+      - PYTHONPATH=/app
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+      remediation-engine-test:
+        condition: service_healthy
+    networks:
+      - test-network
+    volumes:
+      - ./tests:/app/tests
+      - ./reports:/app/reports
+      - ./config:/app/config
+    command: [ "pytest", "/app/tests", "-v", "--tb=short" ]
+
+  # Allure Report Server
+  allure:
+    image: frankescobar/allure-docker-service:latest
+    container_name: allure-test
+    ports:
+      - "5050:5050"
+      - "4040:4040"
+    environment:
+      CHECK_RESULTS_EVERY_SECONDS: 5
+      KEEP_HISTORY: 1
+    volumes:
+      - ./reports/allure-results:/app/allure-results
+      - ./reports/allure-reports:/app/allure-reports
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  postgres-test-data:
+  prometheus-test-data:
+  grafana-test-data:
+  test-storage:

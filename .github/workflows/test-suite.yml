@@ -1,0 +1,192 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - unit
+          - integration
+          - api
+          - ui
+          - security
+          - performance
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: aiops_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-test.txt
+        playwright install --with-deps chromium firefox
+    
+    - name: Create directories
+      run: |
+        mkdir -p reports/coverage reports/allure-results
+        mkdir -p tests/{unit,integration,api,ui,security,performance}
+    
+    - name: Setup test environment
+      env:
+        DATABASE_URL: postgresql://test_user:test_password@localhost:5432/aiops_test
+        REDIS_URL: redis://localhost:6379
+      run: |
+        echo "DATABASE_URL=$DATABASE_URL" >> $GITHUB_ENV
+        echo "REDIS_URL=$REDIS_URL" >> $GITHUB_ENV
+        echo "TESTING=true" >> $GITHUB_ENV
+    
+    - name: Run linters
+      run: |
+        black --check tests/ || true
+        flake8 tests/ --max-line-length=120 --extend-ignore=E203,W503 || true
+    
+    - name: Run unit tests
+      if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'unit' || github.event.inputs.test_suite == ''
+      run: |
+        pytest tests/unit -v \
+          --cov=app \
+          --cov-report=xml \
+          --cov-report=html:reports/coverage \
+          --junit-xml=reports/junit-unit.xml \
+          --alluredir=reports/allure-results
+    
+    - name: Run integration tests
+      if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'integration' || github.event.inputs.test_suite == ''
+      run: |
+        pytest tests/integration -v \
+          --junit-xml=reports/junit-integration.xml \
+          --alluredir=reports/allure-results
+    
+    - name: Run API tests
+      if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'api' || github.event.inputs.test_suite == ''
+      run: |
+        pytest tests/api -v \
+          --junit-xml=reports/junit-api.xml \
+          --alluredir=reports/allure-results
+    
+    - name: Run UI tests
+      if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'ui' || github.event.inputs.test_suite == ''
+      run: |
+        pytest tests/ui -v \
+          --junit-xml=reports/junit-ui.xml \
+          --alluredir=reports/allure-results \
+          --headed=false
+    
+    - name: Run security tests
+      if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'security' || github.event.inputs.test_suite == ''
+      run: |
+        pytest tests/security -v \
+          --junit-xml=reports/junit-security.xml \
+          --alluredir=reports/allure-results
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: Generate Allure Report
+      uses: simple-elf/allure-report-action@master
+      if: always()
+      with:
+        allure_results: reports/allure-results
+        allure_history: allure-history
+        keep_reports: 20
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: reports/
+    
+    - name: Upload Allure report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: allure-report
+        path: allure-history/
+    
+    - name: Comment PR with results
+      uses: daun/jest-results-comment@v1
+      if: github.event_name == 'pull_request' && always()
+      with:
+        results-file: reports/junit-unit.xml
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install security tools
+      run: |
+        pip install bandit safety
+    
+    - name: Run Bandit security scan
+      run: |
+        bandit -r tests/ -f json -o reports/bandit-report.json || true
+    
+    - name: Run Safety check
+      run: |
+        safety check --json > reports/safety-report.json || true
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: reports/*-report.json
