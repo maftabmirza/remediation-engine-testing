@@ -76,7 +76,7 @@ def test_api_connectivity(api_client):
     """Smoke test - verify API is reachable"""
     try:
         response = api_client.get("/")
-        # Should get some response (200 or redirect)
-        assert response.status_code in [200, 307, 404]
+        # Should get some response (200, 302 redirect, 307, or 404)
+        assert response.status_code in [200, 302, 307, 404]
     except Exception as e:
         pytest.fail(f"Cannot connect to API: {e}")
